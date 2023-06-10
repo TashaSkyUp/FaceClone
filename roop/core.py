@@ -19,11 +19,12 @@ import psutil
 import cv2
 import threading
 from PIL import Image, ImageTk
-
+from roop.globals import face_idx
 import roop.globals
 from roop.swapper import process_video, process_img
 from roop.utils import is_img, detect_fps, set_fps, create_video, add_audio, extract_frames, rreplace
-from roop.analyser import get_face_single
+from roop.analyser import get_face_idx, get_face_many
+import os
 
 if 'ROCMExecutionProvider' in roop.globals.providers:
     del torch
@@ -36,6 +37,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('-f', '--face', help='use this face', dest='source_img')
 parser.add_argument('-t', '--target', help='replace this face', dest='target_path')
 parser.add_argument('-o', '--output', help='save output to this file', dest='output_file')
+parser.add_argument('--ffmpeg', help='path to ffmpeg.exe', dest='ffmpeg_path')
 parser.add_argument('--gpu', help='use gpu', dest='gpu', action='store_true', default=False)
 parser.add_argument('--keep-fps', help='maintain original fps', dest='keep_fps', action='store_true', default=False)
 parser.add_argument('--keep-frames', help='keep frames directory', dest='keep_frames', action='store_true', default=False)
@@ -43,11 +45,12 @@ parser.add_argument('--max-memory', help='maximum amount of RAM in GB to be used
 parser.add_argument('--max-cores', help='number of cores to be use for CPU mode', dest='cores_count', type=int, default=max(psutil.cpu_count() - 2, 2))
 parser.add_argument('--all-faces', help='swap all faces in frame', dest='all_faces', action='store_true', default=False)
 
+
 for name, value in vars(parser.parse_args()).items():
     args[name] = value
 
 if '--all-faces' in sys.argv or '-a' in sys.argv:
-    roop.globals.all_faces = True
+    roop.globals.face_idx = True
 
 sep = "/"
 if os.name == "nt":
@@ -69,8 +72,10 @@ def limit_resources():
 def pre_check():
     if sys.version_info < (3, 9):
         quit('Python version is not supported - please upgrade to 3.9 or higher')
+
     if not shutil.which('ffmpeg'):
         quit('ffmpeg is not installed!')
+
     model_path = os.path.join(os.path.abspath(os.path.dirname(__file__)), '../inswapper_128.onnx')
     if not os.path.isfile(model_path):
         quit('File "inswapper_128.onnx" does not exist!')
@@ -92,7 +97,7 @@ def pre_check():
     else:
         roop.globals.providers = ['CPUExecutionProvider']
     if '--all-faces' in sys.argv or '-a' in sys.argv:
-        roop.globals.all_faces = True
+        roop.globals.face_idx = True
 
 
 def start_processing():
@@ -160,8 +165,10 @@ def toggle_fps_limit():
 
 
 def toggle_all_faces():
-    roop.globals.all_faces = True if all_faces.get() == 1 else False
+    roop.globals.face_idx = True if all_faces.get() == 1 else False
 
+def change_face_idx():
+    roop.globals.face_idx = int(face_idx_var.get())
 
 def toggle_keep_frames():
     args['keep_frames'] = int(keep_frames.get())
@@ -195,7 +202,7 @@ def start():
     global pool
     pool = mp.Pool(args['cores_count'])
     target_path = args['target_path']
-    test_face = get_face_single(cv2.imread(args['source_img']))
+    test_face = get_face_idx(cv2.imread(args['source_img']),0)
     if not test_face:
         print("\n[WARNING] No face detected in source image. Please try with another one.\n")
         return
@@ -238,7 +245,7 @@ def start():
 
 
 def run():
-    global all_faces, keep_frames, limit_fps, status_label, window
+    global all_faces, keep_frames, limit_fps, status_label, window,face_idx_var
 
     pre_check()
     limit_resources()
@@ -270,6 +277,17 @@ def run():
     all_faces = tk.IntVar()
     all_faces_checkbox = tk.Checkbutton(window, anchor="w", relief="groove", activebackground="#2d3436", activeforeground="#74b9ff", selectcolor="black", text="Process all faces in frame", fg="#dfe6e9", borderwidth=0, highlightthickness=0, bg="#2d3436", variable=all_faces, command=toggle_all_faces)
     all_faces_checkbox.place(x=60,y=500,width=240,height=31)
+
+    # Face index is an integer
+    # make sure to specify event handler and variable
+    face_idx_var = tk.IntVar()
+    face_index_entry = tk.Entry(window,
+                                textvariable=face_idx,
+                                validatecommand=change_face_idx,
+                                bg="#2d3436", fg="#dfe6e9", highlightthickness=4, relief="flat", highlightbackground="#74b9ff", borderwidth=4)
+    face_index_entry.place(x=360,y=500,width=180,height=31)
+
+
 
     # FPS limit checkbox
     limit_fps = tk.IntVar(None, not args['keep_fps'])

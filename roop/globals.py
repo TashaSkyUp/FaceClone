@@ -1,7 +1,7 @@
 import onnxruntime
 
 use_gpu = False
-all_faces = False
+face_idx = None
 providers = onnxruntime.get_available_providers()
 
 if 'TensorrtExecutionProvider' in providers:
